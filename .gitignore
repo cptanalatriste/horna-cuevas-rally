@@ -168,3 +168,4 @@ Tennis.app/Contents/Resources/UnityPlayerIcon.png
 .ipynb_checkpoints/Tennis-checkpoint.ipynb
 __pycache__/tennis_agent.cpython-36.pyc
 unity-environment.log
+*.pyc
