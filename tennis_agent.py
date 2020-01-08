@@ -10,13 +10,13 @@ DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class TennisAgent():
 
-    def __init__(self, state_size, action_size, num_agents, action_min=-1,
+    def __init__(self, index, state_size, action_size, num_agents, action_min=-1,
                  action_max=1, buffer_size=int(1e6), learning_frequency=100,
                  training_batch_size=1024, gamma=0.95, critic_1st_output=400,
                  critic_2nd_output=300, critic_learning_rate=0.01,
                  actor_1st_output=400, actor_2nd_output=300,
-                 actor_learning_rate=0.01):
-        self.index = None
+                 actor_learning_rate=0.01, tau=0.01, noise_stdev=0.1):
+        self.index = index
         self.state_size = state_size
         self.action_size = action_size
         self.num_agents = num_agents
@@ -25,6 +25,8 @@ class TennisAgent():
         self.training_batch_size = training_batch_size
         self.learning_frequency = learning_frequency
         self.gamma = gamma
+        self.tau = tau
+        self.noise_stdev = noise_stdev
 
         self.critic_local_network = self.get_critic_network(first_layer_output=critic_1st_output,
                                                             second_layer_output=critic_2nd_output)
@@ -67,10 +69,19 @@ class TennisAgent():
         return model.to(DEVICE)
 
     def act(self, states, action_parameters):
-        action = np.random.randn(self.action_size)
-        action = np.clip(action, a_min=self.action_min, a_max=self.action_max)
 
-        return action
+        state = torch.from_numpy(states[self.index]).float().unsqueeze(0).to(DEVICE)
+
+        self.actor_local_network.eval()
+        with torch.no_grad():
+            action = self.actor_local_network(state).numpy()
+        self.actor_local_network.train()
+
+        add_noise = action_parameters['add_noise']
+        if add_noise:
+            action += self.noise_stdev * np.random.randn(self.action_size)
+
+        return np.clip(action, self.action_min, self.action_max)
 
 
     def step(self, agents, states, actions, rewards, next_states, dones):
@@ -120,16 +131,39 @@ class TennisAgent():
         critic_loss.backward()
         self.critic_optimizer.step()
 
+        agent_states = self.extract_agent_state(all_states=states_sample)
+        predicted_actions = self.actor_local_network(agent_states)
+
+        consolidated_actions = actions_sample.clone()
+        agent_start = self.index * self.action_size
+        agent_end = agent_start + self.action_size
+        consolidated_actions[:, agent_start:agent_end] = predicted_actions
+
+        actor_loss = -self.critic_local_network(states_sample, consolidated_actions).mean()
+        self.actor_optimizer.zero_grad()
+        actor_loss.backward()
+        self.actor_optimizer.step()
+
+        update_model_parameters(tau=self.tau, local_network=self.critic_local_network,
+                                target_network=self.critic_target_network)
+        update_model_parameters(tau=self.tau, local_network=self.actor_local_network,
+                                target_network=self.actor_target_network)
+
+    def extract_agent_state(self, all_states):
+
+        agent_start = self.index * self.state_size
+        agent_end = agent_start + self.state_size
+        agent_states = all_states[:, agent_start:agent_end]
+
+        return agent_states
+
     def get_next_actions(self, agents, all_next_states):
 
         all_next_actions = torch.FloatTensor()
 
         for agent in agents:
 
-            agent_start = agent.index * self.state_size
-            agent_end = agent_start + self.state_size
-            agent_next_states = all_next_states[:, agent_start:agent_end]
-
+            agent_next_states = self.extract_agent_state(all_states=all_next_states)
             agent_next_action = agent.actor_target_network(agent_next_states).detach()
             all_next_actions = torch.cat((all_next_actions, agent_next_action), dim=1)
 
