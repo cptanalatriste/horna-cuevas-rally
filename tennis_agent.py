@@ -7,15 +7,18 @@ from tennis_models import CriticNetwork, ActorNetwork
 from dqn_utils import ReplayBuffer, update_model_parameters
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+ACTOR_PREFIX = 'actor_'
+CRITIC_PREFIX = 'critic_'
+AGENT_PREFIX = 'agent_'
 
 class TennisAgent():
 
     def __init__(self, index, state_size, action_size, num_agents, action_min=-1,
-                 action_max=1, buffer_size=int(1e6), learning_frequency=100,
-                 training_batch_size=1024, gamma=0.95, critic_1st_output=400,
-                 critic_2nd_output=300, critic_learning_rate=0.01,
+                 action_max=1, buffer_size=int(1e6), learning_frequency=4,
+                 training_batch_size=128, gamma=0.9, critic_1st_output=400,
+                 critic_2nd_output=300, critic_learning_rate=1e-3,
                  actor_1st_output=400, actor_2nd_output=300,
-                 actor_learning_rate=0.01, tau=0.01, noise_stdev=0.1):
+                 actor_learning_rate=1e-4, tau=1e-3, noise_stdev=0.2):
         self.index = index
         self.state_size = state_size
         self.action_size = action_size
@@ -168,3 +171,26 @@ class TennisAgent():
             all_next_actions = torch.cat((all_next_actions, agent_next_action), dim=1)
 
         return all_next_actions
+
+    def save_trained_weights(self, network_file):
+        agent_identifier = AGENT_PREFIX + "_" + str(self.index)
+        actor_network_file = agent_identifier + "_"  + ACTOR_PREFIX + network_file
+        torch.save(self.actor_local_network.state_dict(), actor_network_file)
+
+        critic_network_file = agent_identifier + "_"  + CRITIC_PREFIX + network_file
+        torch.save(self.critic_local_network.state_dict(), critic_network_file)
+
+    def load_trained_weights(self, network_file):
+        """
+        Takes weights from a file and assigns them to the local network.
+        """
+
+        agent_identifier = AGENT_PREFIX + "_" + str(self.index)
+
+        actor_network_file = agent_identifier + "_"  + ACTOR_PREFIX + network_file
+        self.actor_local_network.load_state_dict(torch.load(actor_network_file))
+        print("Actor Network state loaded from ", actor_network_file)
+
+        critic_network_file = agent_identifier + "_"  + CRITIC_PREFIX + network_file
+        self.critic_local_network.load_state_dict(torch.load(critic_network_file))
+        print("Critic Network state loaded from ", critic_network_file)

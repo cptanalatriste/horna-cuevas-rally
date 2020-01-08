@@ -22,8 +22,10 @@ class MultiAgentTrainingManager():
     def get_consolidated_score(self, current_scores):
         return current_scores
 
-    def on_episode_end(self, environment, agent, network_file):
-        pass
+    def on_episode_end(self, environment, agents, network_file):
+
+        for agent in agents:
+            agent.save_trained_weights(network_file=network_file)
 
     def start_training(self, agents, environment, score_window, num_episodes,
                        network_file, target_score):
