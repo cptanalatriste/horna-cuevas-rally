@@ -4,7 +4,7 @@ import torch.optim as optim
 import numpy as np
 
 from tennis_models import CriticNetwork, ActorNetwork
-from dqn_utils import ReplayBuffer, update_model_parameters
+from dqn_utils import ReplayBuffer, OUNoise, update_model_parameters
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 ACTOR_PREFIX = 'actor_'
@@ -15,10 +15,11 @@ class TennisAgent():
 
     def __init__(self, index, state_size, action_size, num_agents, action_min=-1,
                  action_max=1, buffer_size=int(1e6), learning_frequency=4,
-                 training_batch_size=128, gamma=0.9, critic_1st_output=400,
+                 training_batch_size=256, gamma=0.99, critic_1st_output=400,
                  critic_2nd_output=300, critic_learning_rate=1e-3,
                  actor_1st_output=400, actor_2nd_output=300,
-                 actor_learning_rate=1e-4, tau=1e-3, noise_stdev=0.2):
+                 actor_learning_rate=1e-4, tau=1e-3, noise_theta=0.15,
+                 noise_sigma=0.2):
         self.index = index
         self.state_size = state_size
         self.action_size = action_size
@@ -29,7 +30,6 @@ class TennisAgent():
         self.learning_frequency = learning_frequency
         self.gamma = gamma
         self.tau = tau
-        self.noise_stdev = noise_stdev
 
         self.critic_local_network = self.get_critic_network(first_layer_output=critic_1st_output,
                                                             second_layer_output=critic_2nd_output)
@@ -49,6 +49,9 @@ class TennisAgent():
         self.actor_optimizer = optim.Adam(self.actor_local_network.parameters(),
                                           lr=actor_learning_rate)
 
+        self.noise_generator = OUNoise(action_dim=action_size, low=self.action_min,
+                                       high=self.action_max,theta=noise_theta,
+                                       max_sigma=noise_sigma, min_sigma=noise_sigma)
         self.replay_buffer = ReplayBuffer(buffer_size=buffer_size,
                                           action_type=np.float32,
                                           training_batch_size=training_batch_size,
@@ -82,9 +85,9 @@ class TennisAgent():
 
         add_noise = action_parameters['add_noise']
         if add_noise:
-            action += self.noise_stdev * np.random.randn(self.action_size)
+            action = self.noise_generator.get_action(action=action)
 
-        return np.clip(action, self.action_min, self.action_max)
+        return action
 
 
     def step(self, agents, states, actions, rewards, next_states, dones):
@@ -171,6 +174,9 @@ class TennisAgent():
             all_next_actions = torch.cat((all_next_actions, agent_next_action), dim=1)
 
         return all_next_actions
+
+    def reset(self):
+        self.noise_generator.reset()
 
     def save_trained_weights(self, network_file):
         agent_identifier = AGENT_PREFIX + "_" + str(self.index)

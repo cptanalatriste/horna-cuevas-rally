@@ -8,6 +8,10 @@ class TennisManager(MultiAgentTrainingManager):
         super().__init__(environment_params)
 
     def do_reset(self, environment, agents):
+
+        for agent in agents:
+            agent.reset()
+
         brain_name = self.environment_params['brain_name']
 
         environment_info = environment.reset(train_mode=True)[brain_name]
