@@ -16,7 +16,7 @@ class TennisAgent():
     def __init__(self, index, state_size, action_size, num_agents, action_min=-1,
                  action_max=1, buffer_size=int(1e6), learning_frequency=4,
                  training_batch_size=256, gamma=0.99, critic_1st_output=400,
-                 critic_2nd_output=300, critic_learning_rate=1e-3,
+                 critic_2nd_output=300, critic_learning_rate=1e-5,
                  actor_1st_output=400, actor_2nd_output=300,
                  actor_learning_rate=1e-4, tau=1e-3, noise_theta=0.15,
                  noise_sigma=0.2):
@@ -169,8 +169,8 @@ class TennisAgent():
 
         for agent in agents:
 
-            agent_next_states = self.extract_agent_state(all_states=all_next_states)
-            agent_next_action = agent.actor_target_network(agent_next_states).detach()
+            agent_next_states = agent.extract_agent_state(all_states=all_next_states)
+            agent_next_action = agent.actor_target_network(agent_next_states)
             all_next_actions = torch.cat((all_next_actions, agent_next_action), dim=1)
 
         return all_next_actions
