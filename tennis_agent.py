@@ -1,7 +1,8 @@
+import numpy as np
+
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
-import numpy as np
 
 from tennis_models import CriticNetwork, ActorNetwork
 from dqn_utils import ReplayBuffer, GaussianNoise, update_model_parameters
@@ -25,8 +26,8 @@ class TennisAgent():
         self.state_size = state_size
         self.action_size = action_size
         self.num_agents = num_agents
-        self.action_min = -1
-        self.action_max = 1
+        self.action_min = action_min
+        self.action_max = action_max
         self.training_batch_size = training_batch_size
         self.learning_frequency = learning_frequency
         self.gamma = gamma
@@ -123,7 +124,7 @@ class TennisAgent():
                                               all_states=next_states_sample,
                                               target=True)
 
-        with torch.no_grad(): 
+        with torch.no_grad():
             q_values_next_state = self.critic_target_network(next_states_sample,
                                                              next_actions).squeeze()
         agent_rewards = rewards_sample[:, self.index].squeeze()
@@ -160,9 +161,6 @@ class TennisAgent():
         agent_states = all_states[:, agent_start:agent_end]
 
         return agent_states
-
-    def reset(self):
-        self.noise_generator.reset()
 
     def save_trained_weights(self, network_file):
         agent_identifier = AGENT_PREFIX + "_" + str(self.index)

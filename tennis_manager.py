@@ -1,6 +1,6 @@
-from rl_manager import MultiAgentTrainingManager
-
 import numpy as np
+
+from rl_manager import MultiAgentTrainingManager
 
 class TennisManager(MultiAgentTrainingManager):
 
@@ -8,9 +8,6 @@ class TennisManager(MultiAgentTrainingManager):
         super().__init__(environment_params)
 
     def do_reset(self, environment, agents):
-
-        for agent in agents:
-            agent.reset()
 
         brain_name = self.environment_params['brain_name']
 
