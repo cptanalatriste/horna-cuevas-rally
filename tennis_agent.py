@@ -123,7 +123,7 @@ class TennisAgent():
                                               all_states=next_states_sample,
                                               target=True)
 
-        with torch.no_grad():
+        with torch.no_grad(): 
             q_values_next_state = self.critic_target_network(next_states_sample,
                                                              next_actions).squeeze()
         agent_rewards = rewards_sample[:, self.index].squeeze()
