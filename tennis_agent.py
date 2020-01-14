@@ -4,9 +4,11 @@ import torch.optim as optim
 import numpy as np
 
 from tennis_models import CriticNetwork, ActorNetwork
-from dqn_utils import ReplayBuffer, OUNoise, update_model_parameters
+from dqn_utils import ReplayBuffer, GaussianNoise, update_model_parameters
 
-DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device("cpu")
+
 ACTOR_PREFIX = 'actor_'
 CRITIC_PREFIX = 'critic_'
 AGENT_PREFIX = 'agent_'
@@ -15,11 +17,10 @@ class TennisAgent():
 
     def __init__(self, index, state_size, action_size, num_agents, action_min=-1,
                  action_max=1, buffer_size=int(1e6), learning_frequency=4,
-                 training_batch_size=256, gamma=0.99, critic_1st_output=400,
-                 critic_2nd_output=300, critic_learning_rate=1e-5,
+                 training_batch_size=1024, gamma=0.95, critic_1st_output=400,
+                 critic_2nd_output=300, critic_learning_rate=1e-4,
                  actor_1st_output=400, actor_2nd_output=300,
-                 actor_learning_rate=1e-4, tau=1e-3, noise_theta=0.15,
-                 noise_sigma=0.2):
+                 actor_learning_rate=1e-4, tau=0.01, noise_stdev=0.1):
         self.index = index
         self.state_size = state_size
         self.action_size = action_size
@@ -49,9 +50,10 @@ class TennisAgent():
         self.actor_optimizer = optim.Adam(self.actor_local_network.parameters(),
                                           lr=actor_learning_rate)
 
-        self.noise_generator = OUNoise(action_dim=action_size, low=self.action_min,
-                                       high=self.action_max,theta=noise_theta,
-                                       max_sigma=noise_sigma, min_sigma=noise_sigma)
+        self.noise_generator = GaussianNoise(action_size=action_size,
+                                             action_min=self.action_min,
+                                             action_max=self.action_max,
+                                             noise_stdev=noise_stdev)
         self.replay_buffer = ReplayBuffer(buffer_size=buffer_size,
                                           action_type=np.float32,
                                           training_batch_size=training_batch_size,
@@ -96,7 +98,7 @@ class TennisAgent():
         all_next_states = torch.Tensor(next_states).view(-1, self.num_agents * self.state_size)
         all_actions = torch.Tensor(actions).view(-1, self.num_agents * self.action_size)
         all_rewards = torch.Tensor(rewards).view(-1, self.num_agents)
-        all_dones = torch.Tensor(rewards).view(-1, self.num_agents)
+        all_dones = torch.Tensor(dones).view(-1, self.num_agents)
 
         self.replay_buffer.add(state=all_states, action=all_actions, reward=all_rewards,
                                next_state=all_next_states, done=all_dones)
@@ -117,33 +119,29 @@ class TennisAgent():
         next_states_sample = learning_samples[3]
         dones_sample = learning_samples[4]
 
-        next_actions = self.get_next_actions(agents=agents,
-                                             all_next_states=next_states_sample)
+        next_actions = get_actions_from_state(agents=agents,
+                                              all_states=next_states_sample,
+                                              target=True)
 
-        q_values_next_state = self.critic_target_network(next_states_sample,
-                                                         next_actions)
-
-        agent_rewards = rewards_sample[:, self.index]
-        done_mask = torch.Tensor([np.any(dones_sample[episode].numpy())
-                                  for episode in range(len(dones_sample))])
+        with torch.no_grad():
+            q_values_next_state = self.critic_target_network(next_states_sample,
+                                                             next_actions).squeeze()
+        agent_rewards = rewards_sample[:, self.index].squeeze()
+        done_mask = dones_sample[:, self.index]
 
         q_value_current_state = agent_rewards + (self.gamma * q_values_next_state * (1 - done_mask))
 
-        q_value_expected = self.critic_local_network(states_sample, actions_sample)
+        q_value_expected = self.critic_local_network(states_sample, actions_sample).squeeze()
 
         critic_loss = F.mse_loss(input=q_value_expected,
-                                 target=q_value_current_state)
+                                 target=q_value_current_state.detach())
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         self.critic_optimizer.step()
 
-        agent_states = self.extract_agent_state(all_states=states_sample)
-        predicted_actions = self.actor_local_network(agent_states)
-
-        consolidated_actions = actions_sample.clone()
-        agent_start = self.index * self.action_size
-        agent_end = agent_start + self.action_size
-        consolidated_actions[:, agent_start:agent_end] = predicted_actions
+        consolidated_actions = get_actions_from_state(agents=agents,
+                                                      all_states=states_sample,
+                                                      target=False)
 
         actor_loss = -self.critic_local_network(states_sample, consolidated_actions).mean()
         self.actor_optimizer.zero_grad()
@@ -162,18 +160,6 @@ class TennisAgent():
         agent_states = all_states[:, agent_start:agent_end]
 
         return agent_states
-
-    def get_next_actions(self, agents, all_next_states):
-
-        all_next_actions = torch.FloatTensor()
-
-        for agent in agents:
-
-            agent_next_states = agent.extract_agent_state(all_states=all_next_states)
-            agent_next_action = agent.actor_target_network(agent_next_states)
-            all_next_actions = torch.cat((all_next_actions, agent_next_action), dim=1)
-
-        return all_next_actions
 
     def reset(self):
         self.noise_generator.reset()
@@ -200,3 +186,19 @@ class TennisAgent():
         critic_network_file = agent_identifier + "_"  + CRITIC_PREFIX + network_file
         self.critic_local_network.load_state_dict(torch.load(critic_network_file))
         print("Critic Network state loaded from ", critic_network_file)
+
+
+def get_actions_from_state(agents, all_states, target=True):
+
+    all_actions = torch.FloatTensor()
+
+    for agent in agents:
+
+        agent_states = agent.extract_agent_state(all_states=all_states)
+        if target:
+            agent_action = agent.actor_target_network(agent_states)
+        else:
+            agent_action = agent.actor_local_network(agent_states)
+        all_actions = torch.cat((all_actions, agent_action), dim=1)
+
+    return all_actions

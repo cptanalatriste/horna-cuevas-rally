@@ -5,6 +5,20 @@ import copy
 import torch
 import numpy as np
 
+class GaussianNoise(object):
+
+    def __init__(self, noise_stdev, action_size, action_min, action_max):
+        self.noise_stdev = noise_stdev
+        self.action_size = action_size
+        self.action_min = action_min
+        self.action_max = action_max
+
+    def reset(self):
+        pass
+
+    def get_action(self, action):
+        noise = self.noise_stdev * np.random.randn(self.action_size)
+        return np.clip(action + noise, self.action_min, self.action_max)
 
 # Ornstein-Ulhenbeck Process
 # Taken from #https://github.com/vitchyr/rlkit/blob/master/rlkit/exploration_strategies/ou_strategy.py
